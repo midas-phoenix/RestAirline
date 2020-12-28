@@ -3,6 +3,8 @@ using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
+using Autofac;
+using Autofac.Extensions.DependencyInjection;
 using EventFlow;
 using EventFlow.Configuration;
 using EventFlow.EntityFramework;
@@ -11,6 +13,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Mongo2Go;
 using MongoDB.Driver;
 using RestAirline.Booking.Domain.EventSourcing;
@@ -32,31 +35,38 @@ namespace RestAirline.Booking.Api.Tests
                 r.RegisterServices(register =>
                 {
                     register.Register<IDbContextProvider<EventStoreContext>, FakedEventStoreContextProvider>();
-                    register
-                        .Register<IDbContextProvider<RestAirlineReadModelContext>,
-                            FakedEntityFramewokReadModelDbContextProvider>();
+                    register .Register<IDbContextProvider<RestAirlineReadModelContext>, FakedEntityFramewokReadModelDbContextProvider>();
                     register.Register(f =>
                     {
                         MongoUrl mongoUrl = new MongoUrl(runner.ConnectionString);
                         IMongoDatabase mongoDatabase = new MongoClient(mongoUrl).GetDatabase("restairline-api-tests");
                         return mongoDatabase;
                     }, Lifetime.Singleton);
+
                 });
             });
 
-            var hostBuilder = new WebHostBuilder()
+              var hostBuilder = Host
+                .CreateDefaultBuilder()
+                .UseServiceProviderFactory(new AutofacServiceProviderFactory())
                 .UseEnvironment("UnitTest")
                 .ConfigureAppConfiguration((context, builder) => { builder.AddJsonFile("appsettings.UnitTest.json"); })
-                .UseStartup<Startup>();
+                .ConfigureWebHostDefaults(webBuilder =>
+                {
+                    webBuilder.UseStartup<Startup>()
+                        .UseTestServer();
+                }).Build();
 
-            _server = new TestServer(hostBuilder);
+              hostBuilder.Start();
+
+            _server = hostBuilder.GetTestServer();
             HttpClient = _server.CreateClient();
-            CommandBus = ServiceProvider.GetService<ICommandBus>();
+            CommandBus = ServiceProvider.Resolve<ICommandBus>();
         }
 
         protected readonly HttpClient HttpClient;
 
-        protected IServiceProvider ServiceProvider => ApplicationBootstrap.ServiceProvider;
+        protected ILifetimeScope ServiceProvider => ApplicationBootstrap.AutofacContainer;
 
         protected ICommandBus CommandBus { get; private set; }
 
